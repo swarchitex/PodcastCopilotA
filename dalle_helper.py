@@ -19,6 +19,8 @@ class ImageClient:
         # this method makes the text-to-image API call. It will return the raw response from the API call
 
         reqURL = requests.models.PreparedRequest()
+        if reqURL.url==None or reqURL.url=="": raise ValueError("Endpoint is not set")
+        
         params = {'api-version':self.api_version}
         #the full endpoint will look something like this https://YOUR_AOAI_RESOURCE_NAME.openai.azure.com/dalle/text-to-image
         reqURL.prepare_url(self.endpoint + "dalle/text-to-image", params) 
@@ -100,6 +102,7 @@ class ImageClient:
 
         #wait to request
         status = "not running"
+        r=None
         while status != "Succeeded":
             if self.verbose:
                 print('retry after: ' + retry_after)
@@ -112,6 +115,9 @@ class ImageClient:
             # print(status)
             if status == "Failed":
                 return "-1"
+        
+        if r==None or r.json()==None or r.json()['result']==None or r.json()['result']['contentUrl']==None: 
+            raise ValueError('Error: No image URL found in response')
         
         contentUrl = r.json()['result']['contentUrl']
         image = self.getImage(contentUrl)

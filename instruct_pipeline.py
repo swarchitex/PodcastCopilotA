@@ -73,6 +73,7 @@ class InstructionTextGenerationPipeline(Pipeline):
                              return_full_text: bool = None,
                              **generate_kwargs):
         preprocess_params = {}
+        if self.tokenizer == None: raise ValueError("Tokenizer is not set")
 
         # newer versions of the tokenizer configure the response key as a special token.  newer versions still may
         # append a newline to yield a single token.  find whatever token is configured for the response key.
@@ -104,11 +105,10 @@ class InstructionTextGenerationPipeline(Pipeline):
         return preprocess_params, forward_params, postprocess_params
 
     def preprocess(self, instruction_text, **generate_kwargs):
+        if self.tokenizer == None: raise ValueError("Tokenizer is not set")
+        
         prompt_text = PROMPT_FOR_GENERATION_FORMAT.format(instruction=instruction_text)
-        inputs = self.tokenizer(
-            prompt_text,
-            return_tensors="pt",
-        )
+        inputs = self.tokenizer(prompt_text, return_tensors="pt", )
         inputs["prompt_text"] = prompt_text
         inputs["instruction_text"] = instruction_text
         return inputs
@@ -117,6 +117,9 @@ class InstructionTextGenerationPipeline(Pipeline):
         input_ids = model_inputs["input_ids"]
         attention_mask = model_inputs.get("attention_mask", None)
 
+        if input_ids == None : raise ValueError("input_ids from model_inputs or whatever is None")
+        if self.tokenizer == None: raise ValueError("Tokenizer is not set")
+        
         if input_ids.shape[1] == 0:
             input_ids = None
             attention_mask = None
@@ -173,12 +176,12 @@ class InstructionTextGenerationPipeline(Pipeline):
                     except ValueError:
                         end_pos = None
 
-                    decoded = self.tokenizer.decode(sequence[response_pos + 1 : end_pos]).strip()
+                    decoded = '' if self.tokenizer == None else self.tokenizer.decode(sequence[response_pos + 1 : end_pos]).strip()
 
             if not decoded:
                 # Otherwise we'll decode everything and use a regex to find the response and end.
 
-                fully_decoded = self.tokenizer.decode(sequence)
+                fully_decoded =  '' if self.tokenizer == None else self.tokenizer.decode(sequence)
 
                 # The response appears after "### Response:".  The model has been trained to append "### End" at the
                 # end.

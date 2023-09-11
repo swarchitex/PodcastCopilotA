@@ -83,11 +83,11 @@ for i, chunk in enumerate(audio_chunks):
         print("Exporting", out_file)
         chunk.export(out_file, format="wav")
         result = model.transcribe(out_file)
-        transcriptChunk = result["text"]
+        transcriptChunk:str = "" if result==None else str.strip( result["text"] )
         print(transcriptChunk)
         
         # Append transcript in memory if you have sufficient memory
-        transcript += " " + transcriptChunk
+        if transcriptChunk != None: transcript += ' ' + transcriptChunk. 
 
         # Alternatively, here's how to write the transcript to disk if you have memory constraints
         #textfile = open("chunk{0}.txt".format(i), "w")
