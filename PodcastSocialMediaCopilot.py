@@ -40,35 +40,44 @@ from instruct_pipeline import InstructionTextGenerationPipeline
 import onnxruntime as ort
 ort.set_default_logger_severity(3)
 
+from GetSecrets import GetBingSearchSecrets
+from GetSecrets import GetAzureOpenAISecrets
+from GetSecrets import GetBingSearchSecrets
+from GetSecrets import GetAzureOpenAI_Dall_E_Secrets
+from instruct_pipeline import InstructionTextGenerationPipeline
+from transformers import AutoModelForCausalLM, AutoTokenizer
+
 print("Imports are complete")
 
 
 # Endpoint Settings
-bing_search_url = "https://api.bing.microsoft.com/v7.0/search"
-bing_subscription_key = "TODO"                              # Your key will look something like this: 00000000000000000000000000000000
-openai_api_type = "azure"
-openai_api_base = "https://TODO.openai.azure.com/"          # Your endpoint will look something like  this: https://YOUR_AOAI_RESOURCE_NAME.openai.azure.com/
-openai_api_key = "TODO"                                     # Your key will look something like this: 00000000000000000000000000000000
-gpt4_deployment_name="gpt-4"
+bing_subscription_key, bing_search_url = GetBingSearchSecrets()
+bing_search_url = bing_search_url+"v7.0/search"
 
-# We are assuming that you have all model deployments on the same Azure OpenAI service resource above.  If not, you can change these settings below to point to different resources.
-gpt4_endpoint = openai_api_base                             # Your endpoint will look something like  this: https://YOUR_AOAI_RESOURCE_NAME.openai.azure.com/
-gpt4_api_key = openai_api_key                               # Your key will look something like this: 00000000000000000000000000000000
-dalle_endpoint = openai_api_base                            # Your endpoint will look something like  this: https://YOUR_AOAI_RESOURCE_NAME.openai.azure.com/
-dalle_api_key = openai_api_key                              # Your key will look something like this: 00000000000000000000000000000000
+openai_api_type = "azure"
+openai_api_key , openai_api_base, gpt4_deployment_name= GetAzureOpenAISecrets()
+
+gpt4_endpoint = openai_api_base
+gpt4_api_key = openai_api_key 
 plugin_model_url = openai_api_base
-plugin_model_api_key = openai_api_key                       # Your key will look something like this: 00000000000000000000000000000000
+plugin_model_api_key = openai_api_key 
+
+dalle_api_type = "azure"
+dalle_api_key,dalle_endpoint = GetAzureOpenAI_Dall_E_Secrets()
+#dalle_endpoint='https://est-openai-copilot-podcast.openai.azure.com/'
+dalle_api_version="2023-06-01-preview"
 
 # Inputs about the podcast
 podcast_url = "https://www.microsoft.com/behind-the-tech"
-podcast_audio_file = ".\PodcastSnippet.mp3"
+podcast_audio_file = ".\\PodcastSnippet.mp3"
 
 
 # Step 1 - Call Whisper to transcribe audio
-print("Calling Whisper to transcribe audio...\n")
+print("\nCalling Whisper to transcribe audio...") 
 
 # Chunk up the audio file 
 sound_file = AudioSegment.from_mp3(podcast_audio_file)
+# if we get file not found exception, it may be because FFMPeg is missing from the system: https://github.com/jiaaro/pydub/issues/62
 audio_chunks = split_on_silence(sound_file, min_silence_len=1000, silence_thresh=-40 )
 count = len(audio_chunks)
 print("Audio split into " + str(count) + " audio chunks")
@@ -87,7 +96,7 @@ for i, chunk in enumerate(audio_chunks):
         print(transcriptChunk)
         
         # Append transcript in memory if you have sufficient memory
-        if transcriptChunk != None: transcript += ' ' + transcriptChunk. 
+        if transcriptChunk != None: transcript += ' ' + transcriptChunk 
 
         # Alternatively, here's how to write the transcript to disk if you have memory constraints
         #textfile = open("chunk{0}.txt".format(i), "w")
@@ -99,13 +108,26 @@ print("Transcript: \n")
 print(transcript)
 print("\n")
 
+#Si hay un error ssl whatever puede ser porque hay muchos requests y parece la librería no es thread-safe. 
+#Cuando lo ejecuto en una conexión que no es tan rápida, no da error. El problema es que cuando baja muy 
+#rápido, no tiene tiempo de liberar los buffers, o liberar instancias o algo asi.
+#exactamente igual le ocurre a Edge cuando está bajando un archivo muy grande y falla aleatoriamente
+#https://huggingface.co/microsoft/dolly-v2-7b-olive-optimized
+#https://github.com/huggingface/optimum/blob/a6951c17c3450e1dea99617aa842334f4e904392/optimum/onnxruntime/modeling_decoder.py#L623
 
 # Step 2 - Make a call to a local Dolly 2.0 model optimized for Windows to extract the name of who I'm interviewing from the transcript
 print("Calling a local Dolly 2.0 model optimized for Windows to extract the name of the podcast guest...\n")
-repo_id = "microsoft/dolly-v2-7b-olive-optimized"
+def get_guest_name(transcript:str, return_fake_result:bool):
+    if return_fake_result:
+        return "Neil deGrasse Tyson"
+    
+    repo_id = "databricks/dolly-v2-3b" #hell no ... out of memory 13gb repo_id = "microsoft/dolly-v2-7b-olive-optimized"
 tokenizer = AutoTokenizer.from_pretrained(repo_id, padding_side="left")
-model = ORTModelForCausalLM.from_pretrained(repo_id, provider="DmlExecutionProvider", use_cache=True, use_merged=True, use_io_binding=False)
-streamer = TextStreamer(tokenizer, skip_prompt=True)
+  
+    #este solo si esta corrupto el modelo... model = ORTModelForCausalLM.from_pretrained(repo_id, provider="DmlExecutionProvider", force_download=True, resume_download=False, use_merged=True, use_io_binding=False)
+    #model = ORTModelForCausalLM.from_pretrained(repo_id, provider="DmlExecutionProvider", use_cache=True, use_merged=True, use_io_binding=False)
+    model = AutoModelForCausalLM.from_pretrained("databricks/dolly-v2-3b", device_map="auto", torch_dtype=torch.bfloat16)
+    streamer = TextStreamer(tokenizer, skip_prompt=True) # type: ignore
 generate_text = InstructionTextGenerationPipeline(model=model, streamer=streamer, tokenizer=tokenizer, max_new_tokens=128, return_full_text=True, task="text-generation")
 hf_pipeline = HuggingFacePipeline(pipeline=generate_text)
     
@@ -115,36 +137,32 @@ dolly2_prompt = PromptTemplate(
 )
 
 extract_llm_chain = LLMChain(llm=hf_pipeline, prompt=dolly2_prompt, output_key="guest")
-guest = extract_llm_chain.predict(transcript=transcript)
+    resp:str = extract_llm_chain.predict(transcript=transcript)
+    return resp
 
-print("Guest:\n")
-print(guest)
-print("\n")
+guest = get_guest_name(transcript, return_fake_result = True)
+print(f"Guest: {guest}\n")
 
 
 # Step 3 - Make a call to the Bing Search Grounding API to retrieve a bio for the guest
 def bing_grounding(input_dict:dict) -> dict:
-    print("Calling Bing Search API to get bio for guest...\n")
+    print("Calling Bing Search API to get bio for guest...")
     search_term = input_dict["guest"]
     print("Search term is " + search_term)
 
     headers = {"Ocp-Apim-Subscription-Key": bing_subscription_key}
-    params = {"q": search_term, "textDecorations": True, "textFormat": "HTML"}
+    params = {"q": search_term, "textDecorations": True, "textFormat": "HTML","market":"en-US"}
     response = requests.get(bing_search_url, headers=headers, params=params)
     response.raise_for_status()
     search_results = response.json()
     #print(search_results)
 
     # Parse out a bio.  
-    bio = search_results["webPages"]["value"][0]["snippet"]
-    
-    print("Bio:\n")
-    print(bio)
-    print("\n")
+    bio = search_results["entities"]["value"][0]["description"]
 
     return {"bio": bio}
 
-bing_chain = TransformChain(input_variables=["guest"], output_variables=["bio"], transform=bing_grounding)
+bing_chain = TransformChain(input_variables=["guest"], output_variables=["bio"], transform=bing_grounding, atransform=None)
 bio = bing_chain.run(guest)
 
 
@@ -247,27 +265,44 @@ dalle_prompt = dalle_prompt + ", high-quality digital art"
 
 
 # Step 7 - Make a call to DALL-E model on the Azure OpenAI Service to generate an image 
-print("Calling DALL-E model on Azure OpenAI Service to get an image for social media...\n")
+print("Calling DALL-E model on Azure OpenAI Service to get an image for social media...")
 
-# Establish the client class instance
-client = ImageClient(dalle_endpoint, dalle_api_key, verbose=False) # change verbose to True for including debug print statements
+def old_version_unused_generate_image () :
+    client = ImageClient(dalle_endpoint, dalle_api_key, verbose=True) # Establish the client class instance; change verbose to True for including debug print statements
+    imageURL, postImage =  client.generateImage("A vintage microphone entwined with a spiral galaxy, resting on a book titled 'The Language of the Cosmos', with a laptop in the background displaying code, all under a canopy of shining stars.")
+    print(f"Image URL: {imageURL}\n")
 
-# Generate an image
-imageURL, postImage =  client.generateImage(dalle_prompt)
-print("Image URL: " + imageURL + "\n")
+#import requests
+import openai
+openai.api_type = dalle_api_type
+openai.api_base = dalle_endpoint
+openai.api_version = dalle_api_version
+openai.api_key = dalle_api_key
 
-# Write image to file - this is optional if you would like to have a local copy of the image
-stream = BytesIO(postImage)
-image = Image.open(stream).convert("RGB")
-stream.close()
-photo_path = ".\PostImage.jpg"
-image.save(photo_path)
-print("Image: saved to PostImage.jpg\n")
+response = openai.Image.create(
+    prompt=dalle_prompt,
+    size='1024x1024',
+    n=1
+)
+if response!=None and response.__contains__("status") and response.__contains__("data") and response["status"] == "success" and response["data"] != None:
+    imageURL = response["data"][0]["url"] # type: ignore
+else: imageURL=''
+print(f"Image URL: {imageURL}\n")
+dalle_image_response = requests.get(imageURL)
+
+if(True and dalle_image_response != None and dalle_image_response.content != None) :
+        stream = BytesIO(dalle_image_response.content)
+        image = Image.open(stream).convert("RGB") # type: ignore
+        stream.close() # type: ignore
+        photo_path = ".\\PostImage.jpg"
+        image.save(photo_path) # type: ignore
+        print(f"Image: saved to {photo_path}\n")
 
 
 # Append the podcast URL to the generated social media copy
 social_media_copy = social_media_copy + " " + podcast_url
-
+print(social_media_copy)
+exit()
 
 # Step 8 - Call the LinkedIn Plugin for Copilots to do the post.
 # Currently there is not support in the SDK for the plugin model on Azure OpenAI, so we are using the REST API directly.  
