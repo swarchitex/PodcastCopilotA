@@ -6,6 +6,8 @@
 # The copilot uses the DALL-E 2 model to generate an image for the post.
 # The copilot calls a LinkedIn plugin to post.
 
+#from http.client import responses
+#from sympy import true
 from pydub import AudioSegment
 from pydub.silence import split_on_silence
 import whisper
@@ -80,7 +82,7 @@ sound_file = AudioSegment.from_mp3(podcast_audio_file)
 # if we get file not found exception, it may be because FFMPeg is missing from the system: https://github.com/jiaaro/pydub/issues/62
 audio_chunks = split_on_silence(sound_file, min_silence_len=1000, silence_thresh=-40 )
 count = len(audio_chunks)
-print("Audio split into " + str(count) + " audio chunks")
+print(f"Audio split into {str(count)} audio chunks")
 
 # Call Whisper to transcribe audio
 model = whisper.load_model("base")
@@ -93,7 +95,7 @@ for i, chunk in enumerate(audio_chunks):
         chunk.export(out_file, format="wav")
         result = model.transcribe(out_file)
         transcriptChunk:str = "" if result==None else str.strip( result["text"] )
-        print(transcriptChunk)
+ #       print(transcriptChunk)
         
         # Append transcript in memory if you have sufficient memory
         if transcriptChunk != None: transcript += ' ' + transcriptChunk 
@@ -104,14 +106,12 @@ for i, chunk in enumerate(audio_chunks):
         #textfile.close()
         #print("Exported chunk{0}.txt".format(i))
 
-print("Transcript: \n")
-print(transcript)
-print("\n")
+print(f"Transcript: {transcript}\n")
 
-#Si hay un error ssl whatever puede ser porque hay muchos requests y parece la librería no es thread-safe. 
-#Cuando lo ejecuto en una conexión que no es tan rápida, no da error. El problema es que cuando baja muy 
-#rápido, no tiene tiempo de liberar los buffers, o liberar instancias o algo asi.
-#exactamente igual le ocurre a Edge cuando está bajando un archivo muy grande y falla aleatoriamente
+#Si hay un error ssl whatever puede ser porque hay muchos requests y parece la libreria no es thread-safe. 
+#Cuando lo ejecuto en una conexion que no es tan rapida, no da error. El problema es que cuando baja muy 
+#rapido, no tiene tiempo de liberar los buffers, o liberar instancias o algo asi.
+#exactamente igual le ocurre a Edge cuando esta bajando un archivo muy grande y falla aleatoriamente
 #https://huggingface.co/microsoft/dolly-v2-7b-olive-optimized
 #https://github.com/huggingface/optimum/blob/a6951c17c3450e1dea99617aa842334f4e904392/optimum/onnxruntime/modeling_decoder.py#L623
 
@@ -122,21 +122,21 @@ def get_guest_name(transcript:str, return_fake_result:bool):
         return "Neil deGrasse Tyson"
     
     repo_id = "databricks/dolly-v2-3b" #hell no ... out of memory 13gb repo_id = "microsoft/dolly-v2-7b-olive-optimized"
-tokenizer = AutoTokenizer.from_pretrained(repo_id, padding_side="left")
+    tokenizer = AutoTokenizer.from_pretrained(repo_id, padding_side="left")
   
     #este solo si esta corrupto el modelo... model = ORTModelForCausalLM.from_pretrained(repo_id, provider="DmlExecutionProvider", force_download=True, resume_download=False, use_merged=True, use_io_binding=False)
     #model = ORTModelForCausalLM.from_pretrained(repo_id, provider="DmlExecutionProvider", use_cache=True, use_merged=True, use_io_binding=False)
     model = AutoModelForCausalLM.from_pretrained("databricks/dolly-v2-3b", device_map="auto", torch_dtype=torch.bfloat16)
     streamer = TextStreamer(tokenizer, skip_prompt=True) # type: ignore
-generate_text = InstructionTextGenerationPipeline(model=model, streamer=streamer, tokenizer=tokenizer, max_new_tokens=128, return_full_text=True, task="text-generation")
-hf_pipeline = HuggingFacePipeline(pipeline=generate_text)
+    generate_text = InstructionTextGenerationPipeline(model=model, streamer=streamer, tokenizer=tokenizer, max_new_tokens=128, return_full_text=True, task="text-generation")
+    hf_pipeline = HuggingFacePipeline(pipeline=generate_text)
     
-dolly2_prompt = PromptTemplate(
-    input_variables=["transcript"],
-    template="Extract the guest name on the Beyond the Tech podcast from the following transcript.  Beyond the Tech is hosted by Kevin Scott and Christina Warren, so they will never be the guests.  \n\n Transcript: {transcript}\n\n Host name: Kevin Scott\n\n Guest name: "
-)
+    dolly2_prompt = PromptTemplate(
+        input_variables=["transcript"],
+        template="Extract the guest name on the Beyond the Tech podcast from the following transcript.  Beyond the Tech is hosted by Kevin Scott and Christina Warren, so they will never be the guests.  \n\n Transcript: {transcript}\n\n Host name: Kevin Scott\n\n Guest name: "
+    )
 
-extract_llm_chain = LLMChain(llm=hf_pipeline, prompt=dolly2_prompt, output_key="guest")
+    extract_llm_chain = LLMChain(llm=hf_pipeline, prompt=dolly2_prompt, output_key="guest")
     resp:str = extract_llm_chain.predict(transcript=transcript)
     return resp
 
@@ -159,7 +159,8 @@ def bing_grounding(input_dict:dict) -> dict:
 
     # Parse out a bio.  
     bio = search_results["entities"]["value"][0]["description"]
-
+    
+    print(f"Bio: {bio}\n")
     return {"bio": bio}
 
 bing_chain = TransformChain(input_variables=["guest"], output_variables=["bio"], transform=bing_grounding, atransform=None)
@@ -184,7 +185,7 @@ blurb_messages = chat_prompt.format_prompt(transcript={transcript}, bio={bio}).t
 
 
 # Step 5 - Make a call to Azure OpenAI Service to get a social media blurb, 
-print("Calling GPT-4 model on Azure OpenAI Service to get a social media blurb...\n")
+print("Calling GPT-4 model on Azure OpenAI Service to get a social media blurb...")
 gpt4 = AzureChatOpenAI(
     openai_api_base=gpt4_endpoint,
     openai_api_version="2023-03-15-preview",
@@ -199,9 +200,7 @@ social_media_copy = output.content
 
 gpt4_chain = LLMChain(llm=gpt4, prompt=chat_prompt, output_key="social_media_copy")
 
-print("Social Media Copy:\n")
-print(social_media_copy)
-print("\n")
+print(f"Social Media Copy: {social_media_copy}\n")
 
 
 # Step 6 - Use GPT-4 to generate a DALL-E prompt
@@ -219,7 +218,7 @@ chat_prompt = ChatPromptTemplate.from_messages([system_message_prompt, human_mes
 dalle_messages = chat_prompt.format_prompt(social_media_copy={social_media_copy}).to_messages()
 
 # Call Azure OpenAI Service to get a DALL-E prompt 
-print("Calling GPT-4 model on Azure OpenAI Service to get a DALL-E prompt...\n")
+print("Calling GPT-4 model on Azure OpenAI Service to get a DALL-E prompt...")
 gpt4 = AzureChatOpenAI(
     openai_api_base=gpt4_endpoint,
     openai_api_version="2023-03-15-preview",
@@ -234,9 +233,7 @@ dalle_prompt = output.content
 
 dalle_prompt_chain = LLMChain(llm=gpt4, prompt=chat_prompt, output_key="dalle_prompt")
 
-print("DALL-E Prompt:\n")
-print(dalle_prompt)
-print("\n")
+print(f"DALL-E Prompt: {dalle_prompt}\n")
 
 
 # For the demo, we showed the step by step execution of each chain above, but you can also run the entire chain in one step.
@@ -284,9 +281,8 @@ response = openai.Image.create(
     size='1024x1024',
     n=1
 )
-if response!=None and response.__contains__("status") and response.__contains__("data") and response["status"] == "success" and response["data"] != None:
-    imageURL = response["data"][0]["url"] # type: ignore
-else: imageURL=''
+# BUG no funciona esto. if response!=None and response.__contains__("status") and response.__contains__("data") and response["status"] == "success" and response["data"] != None:
+imageURL = response["data"][0]["url"] # type: ignore
 print(f"Image URL: {imageURL}\n")
 dalle_image_response = requests.get(imageURL)
 
